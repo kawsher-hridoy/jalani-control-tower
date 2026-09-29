@@ -174,7 +174,7 @@ def test_forecast_spike_start_is_counted_once():
     s = world(tick=32)
     st = next(x for x in s.stations if x.id == "station-tongi")
     st.demand_multiplier = 1.8
-    shape = lambda t: heuristic_shape(t)  # noqa: E731
+    shape = heuristic_shape
     hist = _industrial_history([(t, (180 if t >= 30 else 100) * shape(t)) for t in range(32)])
     fc = simple_forecast(hist, st, "DIESEL", 32, 15, 4, [(0, 1.0), (30, 1.8)], [1.8] * 4)
     assert fc[0] == pytest.approx(180 * shape(33), rel=0.02)  # not 1.8 squared

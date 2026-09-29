@@ -1,0 +1,6 @@
+line-length = 120
+
+[lint]
+# Explicit, so a newer ruff release (whose default rule set is wider) cannot turn CI red.
+select = ["E", "F", "W"]
+ignore = ["E501", "E731"]

@@ -1,0 +1,92 @@
+groups:
+  - name: jalani
+    rules:
+      - alert: SimulatorCircuitOpen
+        expr: jalani_circuit_state == 2
+        for: 10s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Simulator circuit breaker is open"
+          description: "The backend's circuit breaker to the simulator has been open for 10s or more. No shipments can be sent; the control tower should be in SAFE_HOLD."
+
+      - alert: SafeHold
+        expr: jalani_operating_mode == 2
+        labels:
+          severity: critical
+        annotations:
+          summary: "Control tower is in SAFE_HOLD"
+          description: "operating_mode is SAFE_HOLD (2). Writes to the simulator are paused and decisions are queued until a fresh, valid snapshot arrives."
+
+      - alert: Degraded
+        expr: jalani_operating_mode == 1
+        labels:
+          severity: warning
+        annotations:
+          summary: "Control tower is DEGRADED"
+          description: "operating_mode is DEGRADED (1). Data is stale or slow; only routine critical top-ups run automatically, everything else waits for a human."
+
+      - alert: FallbackPolicyActive
+        expr: jalani_fallback_active == 1
+        labels:
+          severity: warning
+        annotations:
+          summary: "Heuristic fallback policy is active"
+          description: "The intel service is failing or disabled, so the backend is planning with heuristic-v1 instead of the LP. It returns to lp-v1 automatically once intel is healthy again."
+
+      - alert: DataStale
+        expr: jalani_data_age_seconds > 10
+        for: 15s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Simulator data is stale"
+          description: "The latest validated snapshot is {{ $value | printf \"%.1f\" }}s old, above the 10s threshold for 15s or more. The dashboard may show outdated state."
+
+      - alert: CriticalStockoutRisk
+        expr: max(jalani_stockout_probability) > 0.8
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "A station is at critical risk of stockout"
+          description: "At least one station/fuel pair has a stockout probability of {{ $value | printf \"%.2f\" }} (above 0.8) for 30s or more. Check the risk board and pending recommendations."
+
+      - alert: FuelLost
+        expr: sum(jalani_fuel_lost_liters) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Fuel has been lost"
+          description: "{{ $value | printf \"%.0f\" }} litres have been lost in total to depot overflow, station overflow or failed shipments. See jalani_fuel_lost_liters by cause."
+
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{job="backend", status=~"5.."}[1m]))
+            /
+            sum(rate(http_requests_total{job="backend"}[1m]))
+          ) > 0.05
+        labels:
+          severity: critical
+        annotations:
+          summary: "Backend 5xx error rate is high"
+          description: "More than 5% of backend HTTP requests over the last minute returned a 5xx status ({{ $value | printf \"%.1f\" }} share)."
+
+      - alert: LatencyP95High
+        expr: histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job="backend"}[1m]))) > 0.3
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Backend p95 latency is high"
+          description: "Backend request p95 latency has been above 300ms for 2 minutes or more (current: {{ $value | printf \"%.3f\" }}s)."
+
+      - alert: TickLag
+        expr: jalani_tick_lag > 20
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Control loop is falling behind the simulator"
+          description: "The control loop is {{ $value | printf \"%.0f\" }} ticks behind the simulator for 30s or more. Decisions may be based on old ticks."
