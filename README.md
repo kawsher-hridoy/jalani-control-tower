@@ -204,6 +204,14 @@ Every number Jalani shows or reports is exactly one of three kinds — know whic
 
 **On the benchmark specifically:** it measures the policy running **auto-executed** — every action the heuristic or the LP proposes is applied immediately, with no approval step. That is *not* the same thing as the supervised system an operator actually runs, where CROSS_REGION, RATIONING and LOW_CONFIDENCE recommendations wait for a human before anything is sent. The benchmark answers "is the planner itself any good?", not "what does the supervised product achieve in practice" — the live demo and the resilience drills answer that second question.
 
+**Headline (288-tick lab replays):** baseline no-action service level was **30.7%** with **73,000 L** depot overflow; the heuristic reached **100.0%** with **0 L** lost. In the crisis replay, no-action service was **29.5%**, versus **100.0%** for the heuristic. Baseline LP + safety gate also reached **100.0%**, **0 L** lost (84 allocations, 82 gated cells); crisis LP + safety gate reached **100.0%**, **0 L** lost (89 allocations, 87 gated cells). The dashboard read-path load test reached **134.53 rps**, but **p95 was 1019.70 ms**, failing its 300 ms latency threshold (0.92% request failures).
+
+**LP safety gate:** when the optimizer omits a HIGH/CRITICAL cell's immediate dispatch, the backend uses the backup rule for that cell and increments `jalani_lp_gated_cells_total`. Gated recommendations are labelled `FALLBACK`, so the SUPERVISED approval rules apply.
+
+### Known issues
+
+The LP can defer a feasible departure into its future pipeline or produce an immediate shipment below its 200 L action threshold; the planner's low-stock immediate-dispatch test is marked xfail. The backend safety gate covers urgent HIGH/CRITICAL cells. This is not an LP-optimality claim; see the measured `lp_gated_cells` count in the benchmark report.
+
 - [`docs/loadtest-report.md`](docs/loadtest-report.md) — k6 results for the dashboard read path and the decision (planning) path, plus how the control loop behaves under that load: latency percentiles, throughput, error rate and loop timing.
 - [`docs/benchmark-report.md`](docs/benchmark-report.md) — the same-seed, auto-executed comparison of *no action* vs the *heuristic* vs the *optimizer*, run on the paused `sim-lab` copy of the simulator.
 

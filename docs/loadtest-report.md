@@ -4,8 +4,8 @@ Jalani Control Tower is tested with [k6](https://k6.io) running in Docker, again
 (`docker compose up -d --build`). Two scripts cover the two paths that matter most: reading the
 dashboard, and computing a plan.
 
-> **Status:** this is the report template used during the build. The tables below are filled in
-> with real numbers from a run against the finished stack; cells not yet measured say `TBD`.
+> **Status (29 Sep 2026):** dashboard read-path measurements are from k6 against the running stack.
+> The decision-path test was not run; unmeasured cells are labelled accordingly.
 
 ## 1. Workload definitions
 
@@ -71,51 +71,52 @@ Prometheus `container_cpu_usage_seconds_total` / `container_memory_usage_bytes` 
 
 | Metric | Value |
 |---|---|
-| Requests | TBD |
-| Requests/sec (rps) | TBD |
-| Error rate | TBD |
-| Latency avg | TBD ms |
-| Latency p50 | TBD ms |
-| Latency p90 | TBD ms |
-| Latency p95 | TBD ms (threshold: < 300 ms) |
-| Latency p99 | TBD ms |
-| Latency max | TBD ms |
-| Backend CPU during run | TBD |
-| Backend memory during run | TBD |
-| Thresholds passed | TBD |
+| Requests | 22,986 |
+| Requests/sec (rps) | 134.53 |
+| Max VUs | 200 |
+| Error rate | 0.92% (request failures; rate threshold passed) |
+| Latency avg | 379.82 ms |
+| Latency p50 | 245.04 ms |
+| Latency p90 | 875.63 ms |
+| Latency p95 | 1019.70 ms (threshold: < 300 ms, **failed**) |
+| Latency p99 | 1233.84 ms |
+| Latency max | 1768.16 ms |
+| Backend CPU during run | not measured |
+| Backend memory during run | not measured |
+| Thresholds passed | **No** — latency failed; error-rate threshold passed (k6 exit 99) |
 
 ## 4. Results — decision path (`/api/plan/preview`)
 
 | Metric | Value |
 |---|---|
-| Requests | TBD |
-| Requests/sec (rps) | TBD |
-| Error rate | TBD |
-| Latency avg | TBD ms |
-| Latency p50 | TBD ms |
-| Latency p90 | TBD ms |
-| Latency p95 | TBD ms (threshold: < 1000 ms) |
-| Latency p99 | TBD ms |
-| Latency max | TBD ms |
-| Intel solve p95 during run (`jalani_intel_solve_seconds`) | TBD |
-| Thresholds passed | TBD |
+| Requests | not run (time) |
+| Requests/sec (rps) | not run (time) |
+| Error rate | not run (time) |
+| Latency avg | not run (time) ms |
+| Latency p50 | not run (time) ms |
+| Latency p90 | not run (time) ms |
+| Latency p95 | not run (time) ms (threshold: < 1000 ms) |
+| Latency p99 | not run (time) ms |
+| Latency max | not run (time) ms |
+| Intel solve p95 during run (`jalani_intel_solve_seconds`) | not run (time) |
+| Thresholds passed | not run (time) |
 
 ## 5. Control loop under load
 
 The control loop runs on its own cadence, independent of the HTTP request/response cycle k6 drives
-— this section checks that load on the dashboard and decision paths doesn't starve it.
+— this section checks the dashboard run; the decision path was not load-tested.
 
 **Capture command** (run before, during and after each load test):
 ```bash
-curl -s localhost:8081/api/status | jq .loop
+curl -s localhost:8081/api/status | python3 -c 'import json,sys; print(json.load(sys.stdin)["loop"])'
 ```
 
 | Metric | Before | During | After |
 |---|---|---|---|
-| `loop.ticks_skipped` | TBD | TBD | TBD |
-| `loop.tick_lag` | TBD | TBD | TBD |
-| `loop.last_cycle_ms` | TBD | TBD | TBD |
-| Fallback activations (`jalani_fallback_activations_total`) | TBD | TBD | TBD |
+| `loop.ticks_skipped` | 58 | 62 | 66 |
+| `loop.tick_lag` | 0 | 1 | 0 |
+| `loop.last_cycle_ms` | 275.2 | 570.1 | 188.8 |
+| `loop.lp_gated_cells` | 8,682 | 10,124 | 10,562 |
 
 **Note:** `POST /api/plan/preview` (the endpoint `decision.js` drives) is cached per tick with
 single-flight — concurrent callers for the same tick share one in-flight solve — so no matter how
@@ -124,5 +125,4 @@ control loop already runs on its own.
 
 ## 6. Observations
 
-TBD — notes on where latency grows, whether the circuit breaker or SAFE_HOLD triggered under
-load, and any tuning done as a result.
+The before/during/after loop snapshots all reported `NORMAL lp-v1`. The during column is the sampled peak `last_cycle_ms` / `tick_lag` (sample 5 of 9, 20-second cadence); skipped ticks rose from 58 to 66 over the run. The 300 ms HTTP p95 target failed at 1019.70 ms; 0.92% request failures remained below the 1% threshold. No separate decision-path load test was run.
