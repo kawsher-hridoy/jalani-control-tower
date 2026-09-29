@@ -1,0 +1,125 @@
+name: jalani
+
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+  sim:
+    image: asifmahmoud414/bup-fuel-supply-simulator:1.0.0
+    <<: *restart
+    environment:
+      SIMULATION_SPEED: ${SIMULATION_SPEED:-2}
+      TICK_MINUTES: ${TICK_MINUTES:-15}
+      SIMULATOR_START_MODE: ${SIMULATOR_START_MODE:-running}
+    ports:
+      - "${SIM_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  sim-lab:
+    image: asifmahmoud414/bup-fuel-supply-simulator:1.0.0
+    <<: *restart
+    environment:
+      SIMULATION_SPEED: ${SIMULATION_SPEED:-2}
+      TICK_MINUTES: ${TICK_MINUTES:-15}
+      SIMULATOR_START_MODE: paused
+    ports:
+      - "${SIM_LAB_PORT:-8001}:8000"
+
+  intel:
+    build: ./intel
+    <<: *restart
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8090/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  backend:
+    build: ./backend
+    <<: *restart
+    environment:
+      SIMULATOR_URL: http://sim:8000
+      SIM_LAB_URL: http://sim-lab:8000
+      INTEL_URL: http://intel:8090
+      AUTONOMY_MODE: ${AUTONOMY_MODE:-SUPERVISED}
+      OPERATOR_TOKEN: ${OPERATOR_TOKEN:-change-me-operator}
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-change-me-admin}
+      PLAN_HORIZON_TICKS: ${PLAN_HORIZON_TICKS:-48}
+      SAFETY_Z: ${SAFETY_Z:-1.28}
+      CONSTRAINED_FACTOR: ${CONSTRAINED_FACTOR:-0.5}
+      DATABASE_PATH: /data/jalani.db
+      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+      AZURE_OPENAI_DEPLOYMENT: ${AZURE_OPENAI_DEPLOYMENT:-}
+      AZURE_OPENAI_API_VERSION: ${AZURE_OPENAI_API_VERSION:-2024-10-21}
+      GIT_SHA: ${GIT_SHA:-dev}
+    volumes:
+      - jalani-data:/data
+    ports:
+      - "${BACKEND_PORT:-8081}:8080"
+    depends_on:
+      sim:
+        condition: service_started
+      intel:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  web:
+    build: ./web
+    <<: *restart
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      - backend
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    <<: *restart
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=2d
+      - --web.enable-remote-write-receiver
+    volumes:
+      - ./observability/prometheus:/etc/prometheus:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    <<: *restart
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-change-me}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/jalani.json
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    depends_on:
+      - prometheus
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    <<: *restart
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+
+volumes:
+  jalani-data:
+  prometheus-data:
