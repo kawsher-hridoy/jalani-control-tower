@@ -509,9 +509,15 @@ class Engine:
                     self.open_incident("intel-down", "INTEL_DOWN", "WARNING", "Optimizer unavailable: fallback policy",
                                        "The intel service did not answer. The backup rule (heuristic-v1) is planning; "
                                        "only critical within-region top-ups run automatically.", ["intel"])
+        backup = heuristic.plan(snap, self.history, self.s.horizon_ticks, self.s.safety_z, self.s.constrained_factor,
+                                self.mult_logs)
         if plan is None:
-            plan = heuristic.plan(snap, self.history, self.s.horizon_ticks, self.s.safety_z, self.s.constrained_factor,
-                                  self.mult_logs)
+            plan = backup
+        else:
+            plan = heuristic.gate(plan, backup, snap)
+            if plan.get("gated") and record:
+                metrics.LP_GATED.inc(len(plan["gated"]))
+                self.loop_stats["lp_gated_cells"] = self.loop_stats.get("lp_gated_cells", 0) + len(plan["gated"])
         dt = time.perf_counter() - t0
         metrics.PLAN_SECONDS.observe(dt)
         if record:

@@ -82,8 +82,9 @@ def build(plan: dict, snap: Snapshot, epoch: int, horizon: int) -> list[dict]:
         imp.pop("cross_region", None)
         cross = any(depots[a["source_depot_id"]].region_id != st.region_id for a in acts)
         rationing = not supply_left and (imp.get("unmet_after_liters") or 0) > 0
-        conds = conditions(plan.get("policy", "lp-v1"), cross, rk.get("confidence_label", "MEDIUM"),
-                           snap.stale, rationing)
+        gated = f"{sid}|{fuel}" in plan.get("gated", [])
+        policy = "heuristic-v1" if gated else plan.get("policy", "lp-v1")
+        conds = conditions(policy, cross, rk.get("confidence_label", "MEDIUM"), snap.stale, rationing)
         tier = rk.get("tier", "WATCH")
         hts = rk.get("hours_to_stockout")
         transit = max(a["transit_ticks"] for a in acts)
@@ -94,6 +95,8 @@ def build(plan: dict, snap: Snapshot, epoch: int, horizon: int) -> list[dict]:
         signals = list(rk.get("reasons", []))
         if st.demand_multiplier != 1 and not any("demand x" in x for x in signals):
             signals.append(f"demand x{st.demand_multiplier:g}")
+        if gated:
+            signals.append("optimizer left this cell uncovered: backup rule used")
         for a in acts:
             d = depots[a["source_depot_id"]]
             if d.status == "CONSTRAINED":
@@ -104,7 +107,7 @@ def build(plan: dict, snap: Snapshot, epoch: int, horizon: int) -> list[dict]:
                "fuel_type": fuel, "tier": tier, "actions": acts, "impact": imp,
                "confidence": rk.get("confidence", 0.6), "confidence_label": rk.get("confidence_label", "MEDIUM"),
                "signals": signals, "constraints": binding.get((sid, fuel), []), "explanation": "",
-               "policy": plan.get("policy", "lp-v1"), "decided_by": None, "decided_at_tick": None, "note": None,
+               "policy": policy, "decided_by": None, "decided_at_tick": None, "note": None,
                "allocation_ids": [], "failed_actions": [], "cross_region": cross}
         rec["explanation"] = explain.recommendation(rec, names)
         recs.append(rec)

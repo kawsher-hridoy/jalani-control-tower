@@ -342,3 +342,17 @@ def test_pending_recommendation_stays_stable_across_small_replans(tmp_path):
     assert rec["revision"] == 1 and rec["actions"][0]["quantity"] == 3000 and rec["deadline_tick"] == 20
     eng._revise(rec, _rec([_act(TONGI, "DIESEL", 6000)]))
     assert rec["revision"] == 2 and rec["actions"][0]["quantity"] == 6000
+
+
+def test_gate_fills_an_urgent_cell_the_lp_left_uncovered():
+    snap = world(station_inv=0.0)
+    lp = {"policy": "lp-v1", "actions": [], "impact": [],
+          "risk": [{"station_id": "station-tongi", "fuel_type": "DIESEL", "tier": "CRITICAL"}]}
+    backup = {"actions": [{"route_id": TONGI, "fuel_type": "DIESEL", "quantity": 5000.0},
+                          {"route_id": KARNA, "fuel_type": "PETROL", "quantity": 900.0}],
+              "impact": [{"station_id": "station-tongi", "fuel_type": "DIESEL", "p_stockout_after": 0.1}]}
+    out = heuristic.gate(lp, backup, snap)
+    assert out["gated"] == ["station-tongi|DIESEL"]  # Karnaphuli petrol is not urgent: the LP's choice stands
+    assert out["actions"] == [backup["actions"][0]] and out["policy"] == "lp-v1"
+    recs = autonomy.build(out, snap, 1, 48)
+    assert recs[0]["conditions"] == ["FALLBACK"] and recs[0]["policy"] == "heuristic-v1"

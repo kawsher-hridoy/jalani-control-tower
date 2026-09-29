@@ -48,7 +48,7 @@ async def run_policy(policy: str, sim_url: str, intel_url: str, ticks: int, scen
     history: dict = defaultdict(list)
     mult_logs: dict = defaultdict(list)
     lost = {"depot_overflow": 0.0, "station_overflow": 0.0, "failed_shipment": 0.0}
-    cursor, intel_errors, posted, t0 = 0, 0, 0, time.time()
+    cursor, intel_errors, posted, gated_cells, t0 = 0, 0, 0, 0, time.time()
     for tick in range(ticks):
         for ev in SCENARIOS[scenario]:
             if ev["start_tick"] == tick:  # revealed only when it happens
@@ -75,9 +75,13 @@ async def run_policy(policy: str, sim_url: str, intel_url: str, ticks: int, scen
                 except (httpx.HTTPError, ValueError):
                     plan = None
                 intel_errors += plan is None
+            backup = heuristic.plan(snap, history, settings.horizon_ticks, settings.safety_z,
+                                    settings.constrained_factor, mult_logs)
             if plan is None:
-                plan = heuristic.plan(snap, history, settings.horizon_ticks, settings.safety_z,
-                                      settings.constrained_factor, mult_logs)
+                plan = backup
+            else:  # the same gate as the live loop, so the benchmark measures what actually runs
+                plan = heuristic.gate(plan, backup, snap)
+                gated_cells += len(plan.get("gated", []))
             # race_margin=0: the lab world is paused and stepped, so the tick can't move between read and write
             bodies = executor.prepare(snap, plan["actions"], f"b{tick}", settings.constrained_factor,
                                       consumption_fn(snap, history, mult_logs), race_margin=0)
@@ -102,7 +106,7 @@ async def run_policy(policy: str, sim_url: str, intel_url: str, ticks: int, scen
     return {"policy": policy, "scenario": scenario, "ticks": ticks, "service_level": round(m.service_level, 4),
             "served_liters": round(m.served_demand_liters), "unmet_liters": round(m.unmet_demand_liters),
             "fuel_lost_liters": {k: round(v) for k, v in lost.items()},
-            "allocations": posted, "allocation_failures": m.allocation_failures, "intel_errors": intel_errors,
+            "allocations": posted, "allocation_failures": m.allocation_failures, "intel_errors": intel_errors, "lp_gated_cells": gated_cells,
             "runtime_s": round(time.time() - t0, 1),
             "protocol": {"image": IMAGE, "seed": instance.get("seed"), "scenario_id": instance.get("scenario_id"),
                          "tick_minutes": instance.get("tick_minutes"), "git_sha": settings.git_sha,

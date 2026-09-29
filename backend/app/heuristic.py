@@ -132,3 +132,25 @@ def plan(snap: Snapshot, history: dict, horizon: int = 48, safety_z: float = 1.2
     return {"policy": "heuristic-v1", "status": "optimal", "solve_ms": round((time.perf_counter() - t0) * 1000, 2),
             "actions": actions, "pipeline": [], "risk": risk, "impact": impact, "binding": [],
             "forecast": {"wape": None, "series": {}}}
+
+
+def gate(lp: dict, backup: dict, snap: Snapshot) -> dict:
+    """Physical-consistency gate on the optimizer's output.
+
+    If the LP leaves a HIGH/CRITICAL station/fuel without a shipment departing now while the backup rule can
+    send one, the backup action is used for that cell (the LP may be deferring on a tie, or be wrong). The
+    cells filled this way are listed in `gated` and their recommendations carry the FALLBACK condition."""
+    dest = {r.id: r.destination_station_id for r in snap.routes}
+    covered = {(dest.get(a["route_id"]), a["fuel_type"]) for a in lp.get("actions", [])}
+    urgent = {(r["station_id"], r["fuel_type"]) for r in lp.get("risk", []) if r.get("tier") in ("HIGH", "CRITICAL")}
+    extra, gated = [], []
+    for a in backup.get("actions", []):
+        cell = (dest.get(a["route_id"]), a["fuel_type"])
+        if cell in urgent and cell not in covered:
+            extra.append(a)
+            gated.append(f"{cell[0]}|{cell[1]}")
+    if not extra:
+        return lp
+    impact = [i for i in lp.get("impact", []) if f"{i['station_id']}|{i['fuel_type']}" not in gated]
+    impact += [i for i in backup.get("impact", []) if f"{i['station_id']}|{i['fuel_type']}" in gated]
+    return {**lp, "actions": lp.get("actions", []) + extra, "impact": impact, "gated": gated}

@@ -61,3 +61,4 @@ class Rolling:
 
     def count(self) -> int:
         return len(self._recent())
+LP_GATED = Counter("jalani_lp_gated_cells_total", "Urgent station/fuel cells the LP left uncovered, filled by the backup rule")
