@@ -4,8 +4,13 @@ The benchmark answers one question fairly: **does the optimizer actually help?**
 scenario, from the same seed, against a second, paused copy of the official simulator
 (`sim-lab`, never the live `sim`), once per policy, and compares what happened.
 
-> **Status:** this is the report template used during the build. The tables below are filled in
-> with real numbers from a run against the finished stack; cells not yet measured say `TBD`.
+> **Status (29 Sep 2026, 12:38):**
+> - `none` and `heuristic` are measured: seed 12345, scenario `baseline`, 15-minute ticks, run on a paused copy of the official image through the benchmark module (`app.benchmark`).
+> - `lp` rows are filled in from the full-stack run.
+> - Crisis events (revealed at their start tick):
+>   - Dhaka demand ×1.8 at tick 20 for 24 ticks;
+>   - Gazipur→Tongi route cut at tick 40 for 16 ticks;
+>   - Gazipur diesel supply delayed 8 ticks from tick 50.
 
 ## 1. Protocol
 
@@ -54,16 +59,16 @@ Each run prints a markdown table; those numbers are pasted into the tables below
 
 | Policy | Service level | Served (L) | Unmet (L) | Fuel lost — depot overflow (L) | Fuel lost — station overflow (L) | Fuel lost — failed shipment (L) | Allocations | Allocation failures | Run time |
 |---|---|---|---|---|---|---|---|---|---|
-| none | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| heuristic | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| none | 30.7% | 85,900 | 193,586 | 73,000 | 0 | 0 | 0 | 0 | 37.5 s |
+| heuristic | 100.0% | 279,486 | 0 | 0 | 0 | 0 | 92 | 0 | 34.4 s |
 | lp | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
 
 ## 4. Results — crisis scenario
 
 | Policy | Service level | Served (L) | Unmet (L) | Fuel lost — depot overflow (L) | Fuel lost — station overflow (L) | Fuel lost — failed shipment (L) | Allocations | Allocation failures | Run time |
 |---|---|---|---|---|---|---|---|---|---|
-| none | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| heuristic | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+| none | 29.5% | 85,900 | 204,876 | 73,000 | 0 | 0 | 0 | 0 | 37.5 s |
+| heuristic | 100.0% | 290,776 | 0 | 0 | 0 | 0 | 96 | 0 | 36.1 s |
 | lp | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
 
 ## 5. Reading the numbers
@@ -80,5 +85,6 @@ Each run prints a markdown table; those numbers are pasted into the tables below
 
 ## 6. Observations
 
-TBD — notes on anything surprising (e.g. LP infeasible ticks, solve time near the 0.8 s budget,
-depot/route bottlenecks that bind in every policy).
+- **With no action**, depots overflow: 73,000 L of scheduled supply is discarded at full depots (audit `supply.arrived.added`). This loss is avoidable, because shipping out makes room.
+- **The heuristic** served every litre of demand over the 3 days in both scenarios, with 0 L lost to all three traps and 0 allocation failures. The executor's two capacity rules and the route-disruption checks held for every one of the 90+ allocations.
+- **Scarcity:** the last outside supply arrives at tick 212, so a 3-day run ends before the network runs dry. Days 4–6 would test rationing, not replenishment.
