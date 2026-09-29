@@ -12,7 +12,7 @@ services:
       TICK_MINUTES: ${TICK_MINUTES:-15}
       SIMULATOR_START_MODE: ${SIMULATOR_START_MODE:-running}
     ports:
-      - "${SIM_PORT:-8000}:8000"
+      - "127.0.0.1:${SIM_PORT:-8000}:8000"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8000/v1/health"]
       interval: 10s
@@ -27,7 +27,7 @@ services:
       TICK_MINUTES: ${TICK_MINUTES:-15}
       SIMULATOR_START_MODE: paused
     ports:
-      - "${SIM_LAB_PORT:-8001}:8000"
+      - "127.0.0.1:${SIM_LAB_PORT:-8001}:8000"
 
   intel:
     build: ./intel
@@ -60,7 +60,7 @@ services:
     volumes:
       - jalani-data:/data
     ports:
-      - "${BACKEND_PORT:-8081}:8080"
+      - "127.0.0.1:${BACKEND_PORT:-8081}:8080"
     depends_on:
       sim:
         condition: service_started
@@ -86,12 +86,11 @@ services:
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.retention.time=2d
-      - --web.enable-remote-write-receiver
     volumes:
       - ./observability/prometheus:/etc/prometheus:ro
       - prometheus-data:/prometheus
     ports:
-      - "${PROMETHEUS_PORT:-9090}:9090"
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
 
   grafana:
     image: grafana/grafana:11.2.0
