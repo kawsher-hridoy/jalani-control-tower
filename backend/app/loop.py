@@ -280,6 +280,7 @@ class Engine:
         self.prev, self.snap, self.last_tick, self.seed = self.snap, snap, tick, seed
         self.last_refresh, self.dirty = time.time(), False
         self.log_multipliers(snap)
+        self.reconcile(snap)
         await self.update_demand(snap)
         await self.read_audit(snap)
         detect.run(self, self.prev, snap)
@@ -310,6 +311,25 @@ class Engine:
         self.plan = plan
         await self.apply_plan(plan, snap, execute=False)
         self.update_metrics(snap, plan)
+
+    def reconcile(self, snap: Snapshot) -> None:
+        """A POST can succeed while its response is lost (timeout, fault). The ledger is the truth: if an allocation
+        with that idempotency key exists, the action was executed. Plans already count it as in transit."""
+        by_key = {a.idempotency_key: a.id for a in snap.allocations}
+        for rec in self.recs.values():
+            found = [f for f in rec.get("failed_actions", []) if f.get("idempotency_key") in by_key]
+            if not found:
+                continue
+            for f in found:
+                rec["failed_actions"].remove(f)
+                rec["allocation_ids"].append(by_key[f["idempotency_key"]])
+                self.record("ALLOCATION", "system", f"Reconciled: {int(f['quantity']):,} L via {f['route_id']} was "
+                            f"accepted by the simulator although the response was lost ({f['code']})",
+                            recommendation_id=rec["id"], allocation_id=by_key[f["idempotency_key"]],
+                            idempotency_key=f["idempotency_key"], policy=rec["policy"])
+            if rec["status"] == "FAILED":
+                rec["status"] = "EXECUTED" if rec.get("decided_by") else "AUTO_EXECUTED"
+            self.store.upsert("recommendations", rec)
 
     def log_multipliers(self, snap: Snapshot) -> None:
         for st in snap.stations:
@@ -571,7 +591,8 @@ class Engine:
         ok = [r for r in results if r[1] is not None]
         rec["allocation_ids"] = [r[1]["id"] for r in ok]
         rec["failed_actions"] = [{"route_id": b["route_id"], "fuel_type": b["fuel_type"], "quantity": b["quantity"],
-                                  "code": code} for b, created, code in results if created is None]
+                                  "code": code, "idempotency_key": b["idempotency_key"]}
+                                 for b, created, code in results if created is None]
         rec["status"] = ok_status if ok else "FAILED"
         for body, created, code in results:
             summary = (f"{int(body['quantity']):,} L {body['fuel_type'].lower()} {body['source_depot_id']} → "

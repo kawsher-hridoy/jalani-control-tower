@@ -318,8 +318,20 @@ def test_partial_execution_is_recorded(tmp_path):
     eng.recs[rec["id"]] = rec
     out = asyncio.run(eng.approve(rec["id"], "a", "", 1))
     assert out["status"] == "EXECUTED" and len(out["allocation_ids"]) == 1
-    assert out["failed_actions"] == [{"route_id": KARNA, "fuel_type": "PETROL", "quantity": 3000.0,
-                                      "code": "DISPATCH_CAPACITY_EXCEEDED"}]
+    assert [(f["route_id"], f["code"]) for f in out["failed_actions"]] == [(KARNA, "DISPATCH_CAPACITY_EXCEEDED")]
+
+
+def test_lost_response_is_reconciled_from_the_ledger(tmp_path):
+    eng, _ = _engine(tmp_path, world())
+    rec = _rec([_act(TONGI, "DIESEL", 3000)])
+    rec.update(status="FAILED", decided_by="a", failed_actions=[
+        {"route_id": TONGI, "fuel_type": "DIESEL", "quantity": 3000.0, "code": "TIMEOUT", "idempotency_key": "k-lost"}])
+    eng.recs[rec["id"]] = rec
+    alloc = {"id": 9, "idempotency_key": "k-lost", "source_depot_id": "depot-gazipur",
+             "destination_station_id": "station-tongi", "route_id": TONGI, "fuel_type": "DIESEL", "quantity": 3000,
+             "created_tick": 10, "status": "PENDING"}
+    eng.reconcile(world(allocations=[alloc]))
+    assert rec["status"] == "EXECUTED" and rec["allocation_ids"] == [9] and rec["failed_actions"] == []
 
 
 def test_pending_recommendation_stays_stable_across_small_replans(tmp_path):
