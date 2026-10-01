@@ -3,6 +3,8 @@
 Jalani Control Tower is an operations center that sits on top of the BUP Fuel Supply Simulator.
 It watches the simulated network, predicts stockouts, plans shipments, and executes them, with a human
 approving the consequential decisions. It talks to the simulator only over HTTP and never modifies it.
+Recommendation explanations use deterministic templates; Azure OpenAI configuration fields are
+scaffolding, not an implemented API-call integration.
 
 > SIMULATION: not real fuel infrastructure.
 
@@ -14,7 +16,6 @@ Everything runs from one `docker compose up -d --build` on the `jalani` network.
 flowchart LR
   op(["Operator / judge<br/>browser"])
   k6(["k6 load test"])
-  gpt["Azure OpenAI<br/>(optional, explanations only)"]
 
   subgraph stack["docker compose · network jalani"]
     direction LR
@@ -38,7 +39,6 @@ flowchart LR
   backend -->|"Game Day<br/>/admin/events · /admin/faults"| sim
   backend -->|"POST /v1/plan<br/>1.5 s timeout"| intel
   backend -->|"write-behind, buffered on error"| db
-  backend -.->|"3 s timeout,<br/>template fallback"| gpt
   backend -->|"benchmark in step mode<br/>none vs heuristic vs LP"| lab
 
   prom -->|"scrape /metrics every 5 s"| backend
@@ -120,12 +120,14 @@ stateDiagram-v2
   DEGRADED --> SAFE_HOLD: circuit breaker open, or no snapshot for 10 s
   SAFE_HOLD --> NORMAL: breaker closes and a fresh snapshot arrives
   note right of SAFE_HOLD
-    No writes to the simulator.
+    No shipment dispatch or approval execution.
     UI shows the last good state and its age.
+    Game Day admin controls are separate.
   end note
   note right of DEGRADED
-    Auto-execute only ROUTINE CRITICAL.
-    Everything else waits for a human.
+    Auto-execute only CRITICAL within-region
+    with no condition beyond optional FALLBACK.
+    Autonomy rules still apply.
   end note
 ```
 
@@ -134,10 +136,10 @@ Game Day, re-probed every 5 s), and clears after two consecutive successful inte
 
 | Simulator fault | How it is detected | What the control tower does |
 |---|---|---|
-| `unavailable` | Consecutive failures open the circuit breaker | SAFE_HOLD, no writes, recovers automatically |
+| `unavailable` | Consecutive failures open the circuit breaker | SAFE_HOLD holds shipment dispatch; recovers automatically |
 | `error_rate` | Fault responses counted per endpoint | Retries with jitter and the **same** idempotency key, so no duplicate shipments |
 | `latency` 1500 ms | Simulator p95 > 1 s, still under both timeouts | DEGRADED; the circuit breaker does **not** trip |
-| `latency` 2500 ms | Exceeds the 2 s GET / 3 s POST timeouts | Circuit breaker OPENs → SAFE_HOLD |
+| `latency` 2500 ms | Exceeds the 2 s GET timeout; still below the 3 s POST timeout | Repeated GET failures can open the circuit breaker → SAFE_HOLD |
 | `stale_data` | `X-Simulator-Stale` header | DEGRADED + `STALE_DATA`; also adds `LOW_CONFIDENCE` to affected recommendations |
 | `stream_disconnect` | New SSE connections rejected | `STREAM_DOWN` on the next reconnect attempt; polling keeps processing ticks (an already-open stream may stay up) |
 | intel down | `/v1/plan` fails twice in a row, or disabled via Game Day | `FALLBACK_POLICY`; re-probed every 5 s, returns to `lp-v1` after 2 consecutive successes |
@@ -157,7 +159,7 @@ stateDiagram-v2
   AUTO_EXECUTED --> FAILED: simulator rejects the allocation
 ```
 
-See the README, §7 "Operator guide", for the one authoritative table: conditions
+See the README [Operator guide](../README.md#operator-guide) for the authoritative table: conditions
 (`CROSS_REGION` / `FALLBACK` / `LOW_CONFIDENCE` / `RATIONING`) evaluated per recommendation, the
 autonomy mode × condition matrix, and how SAFE_HOLD/DEGRADED narrow it further. A recommendation
 also carries a `revision`; approving one whose revision has since moved on returns
